@@ -1,9 +1,11 @@
 from inspect import _empty
-import time
-import json
 import os
+import json
+import time
+import glob
 import discord
 import re
+import pandas as pd
 from dotenv import dotenv_values
 from discord import Client, Embed, Webhook, RequestsWebhookAdapter, AsyncWebhookAdapter
 from discord.ext import commands
@@ -14,6 +16,7 @@ config = dotenv_values(".env")
 WEBHOOK_URL = config['webhook_url']
 OWNER = int(config['owner_id'])
 bot_token = config['token']
+prefix = config['prefix']
 
 general_warn_message = 'PLEASE CONTACT THE CREATOR. THIS IS PROBABLY A EDGE CASE.'
 
@@ -31,33 +34,50 @@ async def on_message(message):
         return
 
     # EMOJI TESTER
-    if message.content.startswith('$emoji'):
+    if message.content.startswith(prefix + '_emoji'):
         if (message.author.id == OWNER):
             cleaned_message = message.content.split(' ', 1)[1]
             await message.channel.send(find_and_replace_emotes(cleaned_message, False))
 
     # CHANNEL TESTER
-    if message.content.startswith('$channel'):
+    if message.content.startswith(prefix + '_channel'):
         if (message.author.id == OWNER):
             cleaned_message = message.content.split(' ', 1)[1]
             await message.channel.send(get_channel_id(cleaned_message))
-    
+
+    # SETUP FUNCTION
+    if message.content.startswith(prefix + '_setup'):
+        if (message.author.id == OWNER):
+            categories = []
+            subcategories = []
+            path_to_json = 'import/'
+            json_files = [pos_json for pos_json in os.listdir(
+                path_to_json) if pos_json.endswith('.json')]
+            for index, js in enumerate(json_files):
+                with open(os.path.join(path_to_json, js), encoding="utf8") as json_file:
+                    json_text = json.load(json_file)
+                    print(json_text)
+            await message.channel.send('Setup')
+
     # IMPORT FUNCTION
-    if message.content.startswith('$import'):
+    if message.content.startswith(prefix + '_singular'):
         get_params = message.content.split(' ', 1)[1]
         if (message.author.id == OWNER):
             if (get_params == 'all'):
                 await message.channel.send('import all')
             else:
                 import_singular(message)
-            
+
+
 def import_all(message):
     return 'import all'
 
 # IMPORT FROM SINGULAR FILE
+
+
 def import_singular(message):
     get_params = message.content.split(' ', 1)[1]
-    raw_file = open('importing/'+ get_params +'.json', encoding="utf8")
+    raw_file = open('importing/' + get_params + '.json', encoding="utf8")
     imported_messages = json.load(raw_file)
     sum = 0
     for index, import_message in enumerate(imported_messages['messages']):
@@ -69,7 +89,7 @@ def import_singular(message):
         author_id = import_message['author']['id']
         avatar_image = import_message['author']['avatarUrl']
         past_message_author_id = imported_messages['messages'][index -
-                                                                1]['author']['id']
+                                                               1]['author']['id']
         discriminator = import_message['author']['discriminator']
         message_to_be_sent = ''
 
@@ -94,6 +114,7 @@ def import_singular(message):
         # determine the message
         if (message != ''):
             message_to_be_sent = message
+        # attachments
         elif ('attachments' in import_message and len(import_message['attachments']) > 0):
             if ('url' in import_message['attachments'][0]):
                 attachment_mode = True
@@ -101,8 +122,8 @@ def import_singular(message):
             else:
                 message_to_be_sent = 'ERROR 405050. MESSAGE_ID:' + \
                     import_message['id'] + '\n' + general_warn_message
-
-        elif ('embeds' in import_message):
+        # embeds
+        elif ('embeds' in import_message and len(import_message['embeds']) > 0):
             message_embed = import_message['embeds'][0]
             if ('fields' in message_embed and len(message_embed['fields']) > 0):
                 embed_mode = True
@@ -122,6 +143,11 @@ def import_singular(message):
             else:
                 message_to_be_sent = 'ERROR 405051. MESSAGE_ID:' + \
                     import_message['id'] + '\n' + general_warn_message
+        # mentions
+        elif ('mentions' in import_message and len(import_message['mentions']) > 0):
+            for index, mention_message in enumerate(import_message['mentions']):
+                message_to_be_sent += mention_message['nickname'] + ' '
+
         else:
             message_to_be_sent = 'ERROR 405052. MESSAGE_ID:' + \
                 import_message['id'] + '\n' + general_warn_message
@@ -138,13 +164,15 @@ def import_singular(message):
         else:
             # detect if there are emojis in the string
             webhook.send(username=username, avatar_url=avatar_image,
-                            content=find_and_replace_emotes(message_to_be_sent, True))
+                         content=find_and_replace_emotes(message_to_be_sent, True))
 
         sum += 1
-        print('Copied messages:', sum)
+        print('Remaining messages: ', len(imported_messages['messages']) - sum)
     raw_file.close()
 
 # FIND EMOTES
+
+
 def get_emote(emoji):
     for i in client.guilds:
         emoji = discord.utils.get(i.emojis, name=emoji)
@@ -154,12 +182,16 @@ def get_emote(emoji):
         return None
 
 # FIND CHANNEL ID BY NAME
+
+
 def get_channel_id(name):
     channel = discord.utils.get(client.get_all_channels(), name=name)
     return channel.id
 
 # LOCATE AND REPLACE EMOTES
 #'<:' + emote_name + ':' + emote_id  + '>'
+
+
 def find_and_replace_emotes(message_string, debug_mode):
     debug_string = "Error"
     found_emojis = False
